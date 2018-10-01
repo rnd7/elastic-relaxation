@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<style>
+body{
+  background-color:#000000;
+  padding:0;
+  margin:0;
+  overflow:hidden;
+}
+h1{
+  position:absolute;
+  display:block;
+  padding:0;
+  margin:0;
+  bottom:0px;
+  right:6px;
+  font-size:12px;
+  font-weight:normal;
+  color:#777777;
+  font-style:italic;
+}
+.container{
+  overflow:hidden;
+ 
+  position: absolute;
+  width: 1040px;
+  height: 500px;
+   
+  margin: -250px 0 0 -520px;
+  left: 50%;
+  top: 50%;
+}
+
+.wrapper{
+  position: absolute; 
+  width: 1040px;
+  height: 500px;
+  margin: -250px 0 0 -520px;
+  left: 50%;
+  top: 50%;
+}
+#screen{
+  width: 1040px;
+  height: 500px;
+}
+</style>     
+<title>Elastic Relaxation</title>
+</head>
+<body>
+<div class="container">
+  <div class="wrapper">
+    <canvas id="screen" width="1040" height="500"></canvas>
+  </div>
+</div>
+<script>
+/**
+  ELASTIC RELAXATION
+  
+  LICENSE  
+  This is free Software and released under the MIT License.
+  
+  The MIT License (MIT)
+
+  Copyright (c) 2014 goldsource
+  
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+  
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+  
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+  
+*/
+(function(id){
+  /* CONST ********************************************************************/  
+  var TWOPI = Math.PI*2,
+  NODES = 12+Math.random()*24<<0,
+  LINKS_PER_NODE = 2+Math.random()*6<<0,
+  CANVAS_WIDTH = 1040,
+  CANVAS_HEIGHT = 500,
+  INSET = 50,
+  WIDTH = CANVAS_WIDTH-2*INSET,
+  HEIGHT = CANVAS_HEIGHT-2*INSET,  
+  MAX_DIST = Math.sqrt(WIDTH*WIDTH+HEIGHT*HEIGHT),
+  MAX_X_SPEED = 3,  
+  MAX_Y_SPEED = 3,  
+  MAX_ABS_SPEED = Math.sqrt(MAX_X_SPEED*MAX_X_SPEED+MAX_Y_SPEED*MAX_Y_SPEED),
+  MAX_VELOCTIY = 0.05,
+  SPRINGFACTOR = 0.05;
+  /* DATA *********************************************************************/  
+  pixel_buffer = {}, 
+  requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame,
+  node = {},
+  link = {},
+  skip_damp=0;
+  
+  /* SEQUENCE *****************************************************************/
+  var init = function(){  
+    // visible canvas (pass its id at the bottom of this script)
+    screen.cv = document.getElementById(id);
+    screen.ctx = screen.cv.getContext("2d");
+    screen.cv.width = CANVAS_WIDTH;
+    screen.cv.height = CANVAS_HEIGHT;    
+    screen.ctx.fillStyle = "rgba(0,0,0,1)";
+    screen.ctx.fillRect(0,0,screen.cv.width,screen.cv.height);  
+    screen.ctx.fill();
+    
+    for(var i=0;i<NODES;i++)node[randomString(16)] = makeNode();
+    for(var n in node){
+      for(var j=0;j<LINKS_PER_NODE;j++){  
+        if(!(n in link)) link[n] = [];
+        for(
+          var b = randomKey(node); 
+          b==n || (b in link[n]); 
+          b = randomKey(node)
+        );
+        link[n].push(b);
+      }
+    }
+    requestAnimationFrame(loop);
+  };
+  var loop = function(){
+    update();
+    render();
+    requestAnimationFrame(loop);
+  };
+  
+  var ANGLE_SPEED = 0.01;
+  var update = function(){        
+    for(var k in node){
+      var a = node[k];
+      if(k in link){    
+        var la = [];
+        var deltas = [];
+        var len=link[k].length;
+        var relaxed_angle = (Math.PI*2)/len;
+        var last = node[link[k][len-1]];
+        var last_angle = vecAngle(a.position,last.position);
+        var cur_angle;
+        for(var i=0;i<len;i++){          
+          var b = node[link[k][i]];
+          var d = dist(a.position,b.position);
+          var rel = d/MAX_DIST;
+          var rel_cube = rel*rel;
+          var t = vecAngle(a.position,b.position);   
+          var t2 = vecAngle(b.position,a.position);    
+          var angle_delta = angleDelta(t,last_angle);
+          var angle_factor = angle_delta/relaxed_angle;
+          var vec = rotate(
+            b.position,a.position,
+            (angleDelta(angle_delta,relaxed_angle))*
+            ANGLE_SPEED*angle_factor
+          )
+          //last.energy[0]+=(vec[0]-b.position[0])/2;
+          //  last.energy[1]+=(vec[1]-b.position[1])/2;
+          //b.energy[0]-=(vec[0]-b.position[0]);
+          //b.energy[1]+=(vec[1]-b.position[1]);
+            
+          b.energy[0]-=(Math.cos(t)*rel)*SPRINGFACTOR;
+          b.energy[1]-=(Math.sin(t)*rel)*SPRINGFACTOR;
+          a.energy[0]-=(Math.cos(t2)*rel)*SPRINGFACTOR;
+          a.energy[1]-=(Math.sin(t2)*rel)*SPRINGFACTOR;
+          last = b;
+          last_angle = t;
+        }              
+      }
+    }    
+    for(var k in node){
+      var n = node[k];
+      n.energy[0] += randomSigned()*MAX_VELOCTIY;
+      n.energy[1] += randomSigned()*MAX_VELOCTIY;
+      n.speed[0] =
+        Math.min(MAX_X_SPEED,Math.max(-MAX_X_SPEED,n.speed[0]+n.energy[0]));
+      n.speed[1] = 
+        Math.min(MAX_Y_SPEED,Math.max(-MAX_Y_SPEED,n.speed[1]+n.energy[1]));
+      n.position[0] += n.speed[0];
+      if(n.position[0]<0 || n.position[0]>WIDTH){
+        n.position[0] = WIDTH-((n.position[0]+WIDTH)%WIDTH);
+        n.speed[0] *=-0.8;
+      }
+      n.position[1] += n.speed[1];
+      if(n.position[1]<0 || n.position[1]>HEIGHT){
+        n.position[1] = HEIGHT-((n.position[1]+HEIGHT)%HEIGHT);
+        n.speed[1] *=-0.8;
+      }
+      n.abs_speed = Math.sqrt(n.speed[0]*n.speed[0]+n.speed[1]*n.speed[1]);
+      
+    
+      n.energy[0] = n.energy[1] = 0;
+    }
+  }
+  
+  /* NODE *********************************************************************/
+  var makeNode = function(){
+    var n = {};
+    n.position = [
+      WIDTH/4+Math.random()*WIDTH/2,
+      HEIGHT/4+Math.random()*HEIGHT/2
+    ];
+    n.speed = [randomSigned()*MAX_X_SPEED,randomSigned()*MAX_Y_SPEED];
+    n.energy = [0,0];
+    n.weight = 1;    
+    n.radius = 1;
+    return n;
+  }
+  /* RENDER *******************************************************************/
+  var render = function(){
+    
+    screen.ctx.clearRect(0,0,screen.cv.width,screen.cv.height); 
+    screen.ctx.save();
+    screen.ctx.translate(INSET,INSET);
+    for(var k in node){
+      renderNode(node[k]);
+      if(k in link){
+        for(var i=0, len=link[k].length;i<len;i++){
+          renderLink(node[k],node[link[k][i]]);
+        }
+      }
+    }
+    screen.ctx.restore();
+  }
+  var renderLink = function(a,b){    
+   
+    
+    screen.ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    screen.ctx.beginPath();          
+         
+    var d = dist(a.position,b.position);
+    var rel = (d/MAX_DIST);
+    var f = 100*rel;
+    screen.ctx.moveTo(a.position[0],a.position[1]);   
+    screen.ctx.quadraticCurveTo(     
+      (a.position[0]+b.position[0])/2-((a.speed[0]+b.speed[0])/2)*f, 
+      (a.position[1]+b.position[1])/2-((a.speed[0]+b.speed[0])/2)*f,
+      b.position[0], b.position[1]
+    );     
+    /*screen.ctx.moveTo(a.position[0],a.position[1]);    
+    screen.ctx.lineTo(b.position[0], b.position[1]);  */   
+    
+    screen.ctx.stroke();
+  };  
+  var renderNode = function(n){    
+    var alpha = 0.1+n.abs_speed/MAX_ABS_SPEED*0.1;
+    screen.ctx.fillStyle = "rgba(255,255,255,0.5)";
+    screen.ctx.beginPath();
+    screen.ctx.arc(n.position[0],n.position[1],n.radius,0,TWOPI);
+    screen.ctx.fill();
+  };  
+  /* UTIL *********************************************************************/  
+  /**
+  * Rotate point around center
+  */
+  var rotate = function(p,cc,angle){
+    var x1 = p[0]-cc[0];
+    var y1 = p[1]-cc[1];
+    return [
+      cc[0]+(x1 * Math.cos(angle) - y1 * Math.sin(angle)),
+      cc[1]+(x1 * Math.sin(angle) + y1 * Math.cos(angle))
+    ]  
+  }   
+  /**
+  * angle between two points
+  */
+  var vecAngle = function(a,b){
+    var dx = b[0] - a[0];
+    var dy = b[1] - a[1];
+    return Math.atan2(dy,dx);
+  } 
+  var angleDelta = function(a,b){
+    return Math.atan2(Math.sin(a-b), Math.cos(a-b));
+  }      
+  /**
+  * Distance between two points
+  */
+  var dist = function(a,b){  
+    var dx = a[0]-b[0];
+    var dy = a[1]-b[1];
+    return Math.sqrt(dx*dx+dy*dy);
+  };
+  var randomString = function(len){
+    var str = "";
+    for(var i=0;i<len;i++) str+=(Math.random()*36<<0).toString(36);
+    return str;
+  };
+  var randomBool = function(){
+    return (Math.random()>=.5)?true:false;
+  };
+  var randomItem = function(arr){
+    return arr[arr.length*Math.random()<<0];
+  };
+  var randomInterval = function(min,max){
+    return min+Math.random()*(max-min)
+  };
+  var randomSigned = function(){
+    return -1+Math.random()*2;
+  };
+  var randomKey = function(obj){
+    var keys = Object.keys(obj)
+    return keys[keys.length*Math.random()<<0];
+  };
+  var signedClamp = function(val,limit){
+    return Math.min(limit,Math.max(-limit,val));
+  };
+  
+  /* MAKE IT HAPPEN ***********************************************************/
+  init();
+}("screen"));
+</script>
+
+
+</body></html>
